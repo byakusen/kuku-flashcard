@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>九九フラッシュカード｜OK/NGでNGのみ再出題</title>
+  <style>
+    :root{
+      --bg:#0f172a;         /* slate-900 */
+      --panel:#111827ee;    /* gray-900 */
+      --card:#111827;       /* gray-900 */
+      --muted:#94a3b8;      /* slate-400 */
+      --text:#e5e7eb;       /* gray-200 */
+      --accent:#38bdf8;     /* sky-400 */
+      --good:#22c55e;       /* green-500 */
+      --bad:#ef4444;        /* red-500 */
+      --warn:#f59e0b;       /* amber-500 */
+      --shadow: 0 10px 30px rgba(0,0,0,.35);
+      --radius: 18px;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+      background: radial-gradient(1200px 800px at 80% -10%, #1e293b 0%, var(--bg) 60%);
+      color:var(--text);
+      display:flex; align-items:center; justify-content:center; padding:20px;
+    }
+    .app{width:min(1100px, 100%);}
+    header{display:flex; gap:16px; align-items:center; justify-content:space-between; margin-bottom:12px}
+    header h1{font-size:20px; font-weight:700; margin:0; letter-spacing:.02em}
+    .controls{display:flex; flex-wrap:wrap; gap:10px; align-items:center}
+    .group{background:var(--panel); border:1px solid #1f2937; padding:10px 12px; border-radius:14px; display:flex; align-items:center; gap:10px}
+    .seg{display:flex; gap:6px; flex-wrap:wrap}
+    .seg button{padding:8px 10px; border-radius:10px; border:1px solid #374151; background:#0b1220; color:var(--text); cursor:pointer}
+    .seg button[data-active="true"]{border-color:var(--accent); box-shadow:0 0 0 2px color-mix(in srgb, var(--accent) 40%, transparent);}
+    button.primary{background: linear-gradient(180deg, #38bdf8, #0284c7); color:black; border:none}
+    .btn{padding:10px 14px; border-radius:12px; border:1px solid #374151; background:#0b1220; color:var(--text); cursor:pointer; font-weight:600}
+    .btn:disabled{opacity:.5; cursor:not-allowed}
+    .btn.good{background:linear-gradient(180deg, #22c55e, #15803d); border:none; color:#062b18}
+    .btn.bad{background:linear-gradient(180deg, #ef4444, #b91c1c); border:none; color:#2b0a0a}
+    .btn.warn{background:linear-gradient(180deg, #f59e0b, #b45309); border:none; color:#1a0e00}
+
+    .board{
+      display:grid; grid-template-columns: 1fr 420px; gap:18px; align-items:stretch; margin-top:12px
+    }
+    @media (max-width: 900px){ .board{grid-template-columns: 1fr} }
+
+    .card{
+      background: linear-gradient(180deg, #0b1220, #0a0f1a);
+      border:1px solid #1f2937; border-radius:var(--radius); padding:24px; box-shadow:var(--shadow);
+      position:relative; display:flex; align-items:center; justify-content:center; min-height:320px;
+      perspective: 1000px;
+    }
+    .inner{position:relative; width:100%; height:100%; transform-style:preserve-3d; transition: transform .5s cubic-bezier(.2,.8,.2,1)}
+    .card[data-flipped="true"] .inner{transform: rotateY(180deg)}
+
+    .face{position:absolute; inset:0; display:flex; align-items:center; justify-content:center; backface-visibility:hidden; border-radius:var(--radius)}
+    .front, .back{padding:20px}
+    .front h2,.back h2{font-size: clamp(36px, 7vw, 72px); text-align:center; margin:0}
+    .sub{color:var(--muted); font-size:14px; letter-spacing:.08em; text-transform:uppercase; margin-bottom:10px}
+    .back{ transform: rotateY(180deg) }
+
+    .actions{display:flex; flex-wrap:wrap; gap:10px; justify-content:center; margin-top:18px}
+
+    .panel{
+      background:var(--panel); border:1px solid #1f2937; border-radius:var(--radius); padding:16px; box-shadow:var(--shadow);
+    }
+    .row{display:flex; align-items:center; justify-content:space-between; gap:10px; margin:8px 0}
+
+    .progress{height:10px; background:#0b1220; border:1px solid #1f2937; border-radius:999px; overflow:hidden}
+    .bar{height:100%; width:0%; background:linear-gradient(90deg, var(--accent), #22d3ee)}
+
+    .stat{display:grid; grid-template-columns: 1fr 1fr; gap:10px; margin-top:8px}
+    .pill{border:1px solid #374151; background:#0b1220; padding:10px 12px; border-radius:12px; text-align:center}
+    .pill strong{display:block; font-size:18px}
+
+    .note{color:var(--muted); font-size:13px}
+    .kbd{border:1px solid #374151; background:#0b1220; padding:2px 6px; border-radius:6px; font-family:ui-monospace, SFMono-Regular, Menlo, Consolas, monospace}
+
+    .footer{margin-top:16px; color:var(--muted); font-size:13px; text-align:center}
+    a.link{color:var(--accent); text-decoration:none}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <h1>九九フラッシュカード</h1>
+      <div class="controls">
+        <div class="group" id="danGroup">
+          <span class="sub" style="margin:0 6px 0 2px">出題する段</span>
+          <div class="seg" id="danSeg"></div>
+          <button class="btn warn" id="selectAll">全部</button>
+          <button class="btn" id="selectClear">クリア</button>
+        </div>
+        <div class="group">
+          <label><input type="checkbox" id="shuffleB" checked> シャッフル</label>
+          <label><input type="checkbox" id="swapB"> 順序入れ替え（a×b と b×a）</label>
+        </div>
+        <div class="group">
+          <label><input type="checkbox" id="descB"> 下がり九九（9→1）</label>
+        </div>
+        <button class="btn primary" id="startBtn">スタート / リセット</button>
+      </div>
+    </header>
+
+    <div class="board">
+      <section class="card" id="card" aria-live="polite">
+        <div class="inner">
+          <div class="face front">
+            <div>
+              <div class="sub">問題</div>
+              <h2 id="question">出題をスタートしてください</h2>
+            </div>
+          </div>
+          <div class="face back">
+            <div>
+              <div class="sub">答え</div>
+              <h2 id="answer">—</h2>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <aside class="panel">
+        <div class="row"><strong>進捗</strong> <span id="count">0 / 0</span></div>
+        <div class="progress" aria-label="Progress"><div class="bar" id="bar"></div></div>
+        <div class="stat">
+          <div class="pill"><span>OK</span><strong id="okC">0</strong></div>
+          <div class="pill"><span>NG</span><strong id="ngC">0</strong></div>
+        </div>
+
+        <div class="row"><strong>タイマー</strong> <span id="timer">00:00.0</span></div>
+        <div class="row">
+          <button class="btn" id="timerToggle" disabled>一時停止</button>
+          <span class="note">スタートで自動開始 / 完了で自動停止</span>
+        </div>
+
+        <div class="actions">
+          <button class="btn" id="revealBtn" disabled>答えを表示 <span class="kbd">Space</span></button>
+          <button class="btn good" id="okBtn" disabled>OK <span class="kbd">O</span></button>
+          <button class="btn bad" id="ngBtn" disabled>NG <span class="kbd">X</span></button>
+        </div>
+        <div class="row">
+          <button class="btn" id="undoBtn" disabled>1つ戻す</button>
+          <button class="btn" id="redoBtn" disabled>やり直す（最初から）</button>
+        </div>
+        <p class="note">ラウンド終了ごとに <strong>NGだけ</strong>を自動で再出題します。すべてOKになるまで繰り返します。</p>
+        <p class="note">キーボード: <span class="kbd">Space</span> = 表示, <span class="kbd">O</span> = OK, <span class="kbd">X</span> = NG</p>
+      </aside>
+    </div>
+
+    <div class="footer">© 九九フラッシュカード / ローカル動作・データはブラウザ内のみ</div>
+    <details class="footer" id="devtests" style="margin-top:12px">
+      <summary>開発者テスト（クリックで展開）</summary>
+      <button class="btn" id="runTestsBtn" style="margin:10px 0">自己テストを実行</button>
+      <pre id="testlog" style="text-align:left; white-space:pre-wrap"></pre>
+    </details>
+  </div>
+
+<script>
+(function(){
+  // --- Utility ---
+  const $ = s => document.querySelector(s);
+  const $$ = s => Array.from(document.querySelectorAll(s));
+  const shuffle = arr => arr.sort(()=>Math.random()-0.5);
+
+  // --- Timer ---
+  let t0 = 0, elapsed = 0, ticker = null, running = false;
+  function fmt(ms){
+    const s = Math.floor(ms/1000);
+    const m = Math.floor(s/60);
+    const ss = s%60;
+    const ds = Math.floor((ms%1000)/100);
+    return `${String(m).padStart(2,'0')}:${String(ss).padStart(2,'0')}.${ds}`;
+  }
+  function updateTimerUI(){ $('#timer').textContent = fmt(elapsed); $('#timerToggle').textContent = running? '一時停止' : '再開'; }
+  function startTimer(){ if(running) return; running = true; t0 = performance.now() - elapsed; ticker = setInterval(()=>{ elapsed = performance.now()-t0; updateTimerUI(); }, 100); $('#timerToggle').disabled = false; }
+  function stopTimer(){ if(!running) return; running = false; clearInterval(ticker); ticker = null; updateTimerUI(); }
+  function resetTimer(){ stopTimer(); elapsed = 0; updateTimerUI(); }
+
+  // --- Build selectable dan buttons (1〜9段) ---
+  const danSeg = $('#danSeg');
+  for(let d=1; d<=9; d++){
+    const b = document.createElement('button');
+    b.textContent = `${d}の段`;
+    b.setAttribute('data-dan', d);
+    b.setAttribute('data-active', 'true'); // default ON
+    b.addEventListener('click', ()=>{
+      const on = b.getAttribute('data-active') === 'true';
+      b.setAttribute('data-active', String(!on));
+      updatePreset();
+    });
+    danSeg.appendChild(b);
+  }
+  function updatePreset(){ /* reserved for future visual sync */ }
+
+  $('#selectAll').addEventListener('click', ()=>{
+    $$('#danSeg button').forEach(b=>b.setAttribute('data-active','true'))
+  });
+  $('#selectClear').addEventListener('click', ()=>{
+    $$('#danSeg button').forEach(b=>b.setAttribute('data-active','false'))
+  });
+
+  // --- State ---
+  let deck = [];        // current round cards
+  let nextDeck = [];    // NG cards collected during round
+  let idx = -1;         // current index in deck
+  let flipped = false;  // reveal state
+  let stats = {ok:0, ng:0, seen:0, total:0, round:1};
+  let history = [];     // for undo (per card decision)
+  let started = false;
+
+  const els = {
+    card: $('#card'), q: $('#question'), a: $('#answer'),
+    ok: $('#okBtn'), ng: $('#ngBtn'), reveal: $('#revealBtn'),
+    redo: $('#redoBtn'), undo: $('#undoBtn'),
+    count: $('#count'), okC: $('#okC'), ngC: $('#ngC'), bar: $('#bar')
+  };
+
+  function buildPool(){
+    const activeDans = $$('#danSeg button').filter(b=>b.getAttribute('data-active')==='true').map(b=>+b.dataset.dan);
+    const swap = $('#swapB').checked;
+    const descending = $('#descB').checked;
+    let pool = [];
+    for(const a of activeDans){
+      const bs = descending ? [9,8,7,6,5,4,3,2,1] : [1,2,3,4,5,6,7,8,9];
+      for(const b of bs){
+        pool.push({a, b});
+        if(swap && a!==b) pool.push({a:b, b:a});
+      }
+    }
+    if($('#shuffleB').checked) pool = shuffle(pool);
+    return pool;
+  }
+
+  function start(){
+    deck = buildPool();
+    if(deck.length === 0){ toast('段を選んでください'); return; }
+    nextDeck = [];
+    idx = -1; flipped = false; started = true; history = []; stats = {ok:0, ng:0, seen:0, total:deck.length, round:1};
+    els.redo.disabled = false;
+    resetTimer();
+    startTimer();
+    step();
+  }
+
+  function step(){
+    els.card.setAttribute('data-flipped', 'false');
+    flipped = false;
+    idx++;
+    if(idx >= deck.length){
+      // round finished -> NG only
+      if(nextDeck.length === 0){
+        // Done!
+        showDone();
+        return;
+      }
+      deck = $('#shuffleB').checked ? shuffle(nextDeck) : nextDeck.slice();
+      nextDeck = [];
+      idx = 0; stats.round++;
+      toast(`NGだけを再出題します（${deck.length}枚）`);
+    }
+    const c = deck[idx];
+    els.q.textContent = `${c.a} × ${c.b} = ?`;
+    els.a.textContent = c.a * c.b;
+    enableDuringQuestion();
+    updateUI();
+  }
+
+  function showDone(){
+    els.q.textContent = `すべてOK！（${stats.ok}問 正解）`;
+    els.a.textContent = 'おつかれさま！';
+    disableAnswering();
+    els.reveal.disabled = true;
+    els.ok.disabled = true; els.ng.disabled = true;
+    els.card.setAttribute('data-flipped','true');
+    stopTimer();
+    toast(`クリア！ 所要時間: ${$('#timer').textContent}`);
+    updateUI(true);
+  }
+
+  function enableDuringQuestion(){
+    els.reveal.disabled = false; els.ok.disabled = true; els.ng.disabled = true; els.undo.disabled = history.length===0;
+  }
+  function enableAfterReveal(){
+    els.ok.disabled = false; els.ng.disabled = false; els.undo.disabled = history.length===0;
+  }
+  function disableAnswering(){
+    els.reveal.disabled = true; els.ok.disabled = true; els.ng.disabled = true; els.undo.disabled = true;
+  }
+
+  // --- Actions ---
+  $('#startBtn').addEventListener('click', start);
+  $('#revealBtn').addEventListener('click', ()=>{
+    if(!started) return;
+    els.card.setAttribute('data-flipped', 'true');
+    flipped = true; enableAfterReveal();
+  });
+  $('#okBtn').addEventListener('click', ()=> decide(true));
+  $('#ngBtn').addEventListener('click', ()=> decide(false));
+
+  function decide(isOk){
+    if(!started || !flipped) return; // must reveal first
+    const card = deck[idx];
+    history.push({card, isOk});
+    stats.seen++;
+    if(isOk){ stats.ok++; } else { stats.ng++; nextDeck.push(card); }
+    updateUI();
+    step();
+  }
+
+  // Undo last decision within current session
+  $('#undoBtn').addEventListener('click', ()=>{
+    if(history.length===0) return;
+    const last = history.pop();
+    // revert counters & piles
+    stats.seen--;
+    if(last.isOk){ stats.ok--; } else { stats.ng--; const i = nextDeck.findIndex(x=>x.a===last.card.a && x.b===last.card.b); if(i>-1) nextDeck.splice(i,1); }
+    // step back index
+    idx = Math.max(-1, idx-1);
+    step();
+  });
+
+  // Reset all
+  $('#redoBtn').addEventListener('click', ()=>{
+    start();
+  });
+
+  // Keyboard shortcuts
+  window.addEventListener('keydown', (e)=>{
+    if(e.target.closest('input,textarea')) return;
+    if(e.code === 'Space'){ e.preventDefault(); if(!els.reveal.disabled) $('#revealBtn').click(); return; }
+    if(e.key.toLowerCase()==='o'){ if(!els.ok.disabled) $('#okBtn').click(); }
+    if(e.key.toLowerCase()==='x'){ if(!els.ng.disabled) $('#ngBtn').click(); }
+  });
+  // Note: 下がり九九はシャッフルOFF時のみ順序が効きます（シャッフルONだとランダムになります）
+
+  // --- UI ---
+  function updateUI(isDone=false){
+    $('#count').textContent = `${Math.min(stats.seen+1, stats.total)} / ${stats.total}`;
+    $('#okC').textContent = stats.ok; $('#ngC').textContent = stats.ng;
+    const ratio = stats.total? Math.min(100, Math.round((stats.seen/stats.total)*100)) : 0;
+    $('#bar').style.width = ratio + '%';
+    if(isDone){ $('#bar').style.width = '100%'; }
+  }
+
+  // --- Toast feedback ---
+  let toastEl;
+  function toast(msg){
+    if(toastEl) toastEl.remove();
+    toastEl = document.createElement('div');
+    toastEl.textContent = msg;
+    Object.assign(toastEl.style,{
+      position:'fixed', left:'50%', top:'20px', transform:'translateX(-50%)',
+      background:'#0b1220', border:'1px solid #334155', padding:'10px 14px',
+      borderRadius:'12px', color:'var(--text)', boxShadow: 'var(--shadow)', zIndex: 9999
+    });
+    document.body.appendChild(toastEl);
+    setTimeout(()=> toastEl && toastEl.remove(), 2400);
+  }
+
+  // --- Developer self tests ---
+  function runDevTests(){
+    const logEl = $('#testlog');
+    const logs = [];
+    function log(s){ logs.push(s); }
+    function assert(name, cond){ if(!cond) throw new Error('FAIL: '+name); log('PASS: '+name); }
+
+    // Save state
+    const prevActives = $$('#danSeg button').map(b=>b.getAttribute('data-active'));
+    const prevShuffle = $('#shuffleB').checked;
+    const prevSwap = $('#swapB').checked;
+    const prevDesc = $('#descB').checked;
+
+    // Helper to set only one dan active
+    function setOnlyDan(n){
+      $$('#danSeg button').forEach(b=>b.setAttribute('data-active','false'));
+      const target = $$('#danSeg button').find(b=>+b.dataset.dan===n);
+      if(target) target.setAttribute('data-active','true');
+    }
+
+    try{
+      // Test1: ascending order, no swap
+      setOnlyDan(6);
+      $('#shuffleB').checked = false; $('#swapB').checked = false; $('#descB').checked = false;
+      let p = buildPool();
+      assert('T1 length 9', p.length===9);
+      assert('T1 first is 6×1', p[0].a===6 && p[0].b===1);
+      assert('T1 last is 6×9', p[8].a===6 && p[8].b===9);
+
+      // Test2: descending order
+      $('#descB').checked = true;
+      p = buildPool();
+      assert('T2 first is 6×9', p[0].a===6 && p[0].b===9);
+      assert('T2 last is 6×1', p[8].a===6 && p[8].b===1);
+
+      // Test3: swap duplicates except a==b
+      $('#descB').checked = false; $('#swapB').checked = true;
+      p = buildPool();
+      assert('T3 length 17 (9 + 8)', p.length===17);
+      assert('T3 contains 1×6', p.some(c=>c.a===1 && c.b===6));
+      assert('T3 contains 6×6 only once', p.filter(c=>c.a===6 && c.b===6).length===1);
+
+      log('All tests passed.');
+    } catch(err){
+      log(err.message || String(err));
+    } finally {
+      // restore state
+      $$('#danSeg button').forEach((b,i)=>b.setAttribute('data-active', prevActives[i]||'true'));
+      $('#shuffleB').checked = prevShuffle;
+      $('#swapB').checked = prevSwap;
+      $('#descB').checked = prevDesc;
+    }
+
+    if(logEl){ logEl.textContent = logs.join('\n'); }
+    console.log('[DEV TESTS]', logs.join('\n'));
+    toast(logs.slice(-1)[0]||'実行しました');
+  }
+
+  const qp = new URLSearchParams(location.search);
+  if(qp.get('test')==='1') runDevTests();
+  $('#runTestsBtn')?.addEventListener('click', runDevTests);
+
+})();
+</script>
+</body>
+</html>
